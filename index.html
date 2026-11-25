@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CodeLab Studio — Projects & Multi-Language IDE</title>
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, sans-serif; }
+    body { background: #0b0f19; color: #e2e8f0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+    /* Top Bar */
+    .topbar {
+      background: #111827; border-bottom: 1px solid #1f2937; padding: 9px 14px;
+      display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;
+    }
+    .brand { font-size: 17px; font-weight: 800; color: #38bdf8; }
+    .controls { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+    select, input {
+      background: #1f2937; color: #f8fafc; border: 1px solid #374151;
+      padding: 7px 10px; border-radius: 7px; font-size: 12px; outline: none;
+    }
+    button {
+      padding: 7px 12px; border-radius: 7px; border: none; font-weight: 600;
+      cursor: pointer; font-size: 12px; transition: 0.15s;
+    }
+    .btn-run { background: #10b981; color: #052e16; }
+    .btn-run:hover { background: #34d399; }
+    .btn-blue { background: #2563eb; color: #fff; }
+    .btn-blue:hover { background: #3b82f6; }
+    .btn-dark { background: #1f2937; color: #cbd5e1; }
+    .btn-dark:hover { background: #374151; }
+    .btn-danger { background: #7f1d1d; color: #fecaca; }
+    .btn-danger:hover { background: #991b1b; }
+    .save-pill { font-size: 11px; color: #38bdf8; padding: 0 4px; }
+
+    /* File Tabs Bar */
+    .filebar {
+      background: #0f172a; border-bottom: 1px solid #1e293b; padding: 6px 12px;
+      display: flex; align-items: center; gap: 6px; overflow-x: auto;
+    }
+    .file-tab {
+      padding: 5px 11px; border-radius: 6px; background: #1e293b; color: #94a3b8;
+      font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+    }
+    .file-tab.active { background: #2563eb; color: #fff; font-weight: 600; }
+
+    /* Main Split Layout */
+    .workspace { flex: 1; display: grid; grid-template-columns: 1fr 1fr; overflow: hidden; }
+    .pane { display: flex; flex-direction: column; border-right: 1px solid #1f2937; min-width: 0; }
+    .pane-header {
+      background: #0f172a; padding: 8px 14px; font-size: 12px; font-weight: 700;
+      color: #94a3b8; border-bottom: 1px solid #1e293b; display: flex; justify-content: space-between;
+    }
+    textarea.code-editor {
+      flex: 1; width: 100%; background: #0d1117; color: #e6edf3; border: none;
+      padding: 14px; font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 14px;
+      line-height: 1.5; resize: none; outline: none; tab-size: 4;
+    }
+
+    /* Right Output & Stdin */
+    .right-pane { display: flex; flex-direction: column; background: #090d16; overflow: hidden; }
+    .stdin-box {
+      padding: 8px 12px; background: #111827; border-bottom: 1px solid #1f2937;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .stdin-box input { flex: 1; }
+    .console-out {
+      flex: 1; padding: 14px; font-family: 'Cascadia Code', monospace; font-size: 13px;
+      white-space: pre-wrap; overflow-y: auto; color: #a7f3d0; line-height: 1.5;
+    }
+    iframe.web-preview { flex: 1; width: 100%; border: none; background: #ffffff; display: none; }
+
+    @media (max-width: 768px) {
+      .workspace { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
+      .pane { border-right: none; border-bottom: 1px solid #1f2937; }
+    }
+  </style>
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="brand">⚡ CodeLab Studio</div>
+
+    <div class="controls">
+      <select id="projectSelect" onchange="switchProject()"></select>
+      <button class="btn-blue" onclick="createNewProject()">+ New Project</button>
+      <button class="btn-dark" onclick="renameProject()">Rename</button>
+      <button class="btn-danger" onclick="deleteCurrentProject()">Delete</button>
+
+      <select id="langSelect" onchange="changeActiveFileLanguage()">
+        <option value="html">HTML / Web</option>
+        <option value="css">CSS</option>
+        <option value="javascript">JavaScript</option>
+        <option value="python">Python 3</option>
+        <option value="c">C (GCC)</option>
+        <option value="cpp">C++ (G++)</option>
+        <option value="java">Java</option>
+        <option value="php">PHP</option>
+      </select>
+
+      <input type="password" id="apiKeyInput" placeholder="Optional OnlineCompiler Key" style="width: 175px;">
+      <button class="btn-run" onclick="runCode()">▶ Run</button>
+      <button class="btn-dark" onclick="exportProjects()">Export</button>
+      <span id="saveStatus" class="save-pill">Saved in browser</span>
+    </div>
+  </header>
+
+  <div class="filebar" id="fileBar"></div>
+
+  <main class="workspace">
+    <!-- Left Code Editor -->
+    <section class="pane">
+      <div class="pane-header">
+        <span id="activeFileName">index.html</span>
+        <span id="activeFileLang">HTML</span>
+      </div>
+      <textarea id="codeEditor" class="code-editor" spellcheck="false" oninput="onEditorInput()"></textarea>
+    </section>
+
+    <!-- Right Output / Live Preview -->
+    <section class="right-pane">
+      <div class="pane-header">
+        <span>OUTPUT / PREVIEW</span>
+        <span id="statusText" style="color:#38bdf8;">Ready</span>
+      </div>
+      <div class="stdin-box" id="stdinBar">
+        <span style="font-size:12px; color:#94a3b8;">Input (stdin):</span>
+        <input type="text" id="stdinInput" placeholder="Program input (if needed)...">
+      </div>
+      <pre id="consoleOutput" class="console-out">Click "Run" to execute your project...</pre>
+      <iframe id="webPreview" class="web-preview" sandbox="allow-scripts allow-modals"></iframe>
+    </section>
+  </main>
+
+  <script>
+    const STORAGE_KEY = "codelab_studio_projects_v1";
+    const WANDBOX_COMPILERS = {
+      c: "gcc-head",
+      cpp: "g++-head",
+      java: "openjdk-head",
+      php: "php-head"
+    };
+
+    const DEFAULT_DATA = {
+      activeProjectId: "proj_web",
+      projects: [
+        {
+          id: "proj_web",
+          name: "My Web Project",
+          activeFileId: "f_html",
+          files: [
+            {
+              id: "f_html",
+              name: "index.html",
+              lang: "html",
+              content: `<!DOCTYPE html>\n<html>\n<head>\n  <meta charset="UTF-8">\n  <title>My Saved Project</title>\n</head>\n<body>\n  <div class="box">\n    <h1>Project Saved in Browser!</h1>\n    <p id="msg">Click the button to test JS + CSS.</p>\n    <button onclick="greet()">Test Button</button>\n  </div>\n</body>\n</html>`
+            },
+            {
+              id: "f_css",
+              name: "style.css",
+              lang: "css",
+              content: `body { font-family: system-ui, sans-serif; background: #0f172a; color: #f8fafc; display: grid; place-items: center; height: 100vh; margin: 0; }\n.box { background: #1e293b; padding: 28px; border-radius: 14px; text-align: center; box-shadow: 0 12px 30px rgba(0,0,0,0.4); }\nbutton { margin-top: 12px; padding: 10px 18px; border: none; border-radius: 8px; background: #38bdf8; color: #0f172a; font-weight: 700; cursor: pointer; }`
+            },
+            {
+              id: "f_js",
+              name: "script.js",
+              lang: "javascript",
+              content: `function greet() {\n  document.getElementById("msg").innerText = "Updated at " + new Date().toLocaleTimeString();\n}`
+            }
+          ]
+        },
+        {
+          id: "proj_py",
+          name: "Python & Code Lab",
+          activeFileId: "f_py",
+          files: [
+            {
+              id: "f_py",
+              name: "main.py",
+              lang: "python",
+              content: `def square_list(nums):\n    return [n * n for n in nums]\n\nprint("Squares:", square_list([1, 2, 3, 4, 5]))`
+            },
+            {
+              id: "f_cpp",
+              name: "main.cpp",
+              lang: "cpp",
+              content: `#include <iostream>\nusing namespace std;\n\nint main() {\n    cout << "Hello from C++ Project!" << endl;\n    return 0;\n}`
+            }
+          ]
+        }
+      ]
+    };
+
+    let state = loadState();
+    let pyodideInstance = null;
+
+    function loadState() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return structuredClone(DEFAULT_DATA);
+        const parsed = JSON.parse(raw);
+        if (!parsed.projects || !parsed.projects.length) return structuredClone(DEFAULT_DATA);
+        return parsed;
+      } catch {
+        return structuredClone(DEFAULT_DATA);
+      }
+    }
+
+    function saveState() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      const pill = document.getElementById("saveStatus");
+      pill.innerText = "Saved (" + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) + ")";
+    }
+
+    function getCurrentProject() {
+      return state.projects.find(p => p.id === state.activeProjectId) || state.projects[0];
+    }
+
+    function getActiveFile(project) {
+      return project.files.find(f => f.id === project.activeFileId) || project.files[0];
+    }
+
+    function detectLangFromFilename(name) {
+      const lower = name.toLowerCase();
+      if (lower.endsWith(".html") || lower.endsWith(".htm")) return "html";
+      if (lower.endsWith(".css")) return "css";
+      if (lower.endsWith(".js")) return "javascript";
+      if (lower.endsWith(".py")) return "python";
+      if (lower.endsWith(".c")) return "c";
+      if (lower.endsWith(".cpp") || lower.endsWith(".cc")) return "cpp";
+      if (lower.endsWith(".java")) return "java";
+      if (lower.endsWith(".php")) return "php";
+      return "javascript";
+    }
+
+    function renderAll() {
+      const projSelect = document.getElementById("projectSelect");
+      projSelect.innerHTML = state.projects
+        .map(p => `<option value="${p.id}" ${p.id === state.activeProjectId ? "selected" : ""}>${p.name}</option>`)
+        .join("");
+
+      const project = getCurrentProject();
+      state.activeProjectId = project.id;
+      const activeFile = getActiveFile(project);
+      project.activeFileId = activeFile.id;
+
+      const fileBar = document.getElementById("fileBar");
+      fileBar.innerHTML = project.files
+        .map(f => `<div class="file-tab ${f.id === activeFile.id ? "active" : ""}" onclick="selectFile('${f.id}')">${f.name}</div>`)
+        .join("") +
+        `<button class="btn-dark" onclick="addFileToProject()">+ File</button>` +
+        (project.files.length > 1 ? `<button class="btn-danger" onclick="deleteActiveFile()">× File</button>` : "");
+
+      document.getElementById("activeFileName").innerText = activeFile.name;
+      document.getElementById("activeFileLang").innerText = activeFile.lang.toUpperCase();
+      document.getElementById("langSelect").value = activeFile.lang;
+      document.getElementById("codeEditor").value = activeFile.content;
+
+      updateOutputMode(activeFile.lang);
+      saveState();
+    }
+
+    function updateOutputMode(lang) {
+      const isWeb = lang === "html" || lang === "css" || lang === "javascript";
+      document.getElementById("webPreview").style.display = isWeb ? "block" : "none";
+      document.getElementById("consoleOutput").style.display = isWeb ? "none" : "block";
+      document.getElementById("stdinBar").style.display = isWeb ? "none" : "flex";
+    }
+
+    function onEditorInput() {
+      const project = getCurrentProject();
+      const activeFile = getActiveFile(project);
+      activeFile.content = document.getElementById("codeEditor").value;
+      saveState();
+    }
+
+    function switchProject() {
+      state.activeProjectId = document.getElementById("projectSelect").value;
+      renderAll();
+    }
+
+    function createNewProject() {
+      const name = prompt("Enter new project name:", "New Project");
+      if (!name || !name.trim()) return;
+      const id = "proj_" + Date.now();
+      const fileId = "f_" + Date.now();
+      state.projects.push({
+        id,
+        name: name.trim(),
+        activeFileId: fileId,
+        files: [
+          {
+            id: fileId,
+            name: "index.html",
+            lang: "html",
+            content: `<!DOCTYPE html>\n<html>\n<body>\n  <h2>${name.trim()}</h2>\n  <p>Start building your project here.</p>\n</body>\n</html>`
+          }
+        ]
+      });
+      state.activeProjectId = id;
+      renderAll();
+    }
+
+    function renameProject() {
+      const project = getCurrentProject();
+      const updated = prompt("Rename project:", project.name);
+      if (!updated || !updated.trim()) return;
+      project.name = updated.trim();
+      renderAll();
+    }
+
+    function deleteCurrentProject() {
+      if (state.projects.length <= 1) {
+        alert("At least one project must remain.");
+        return;
+      }
+      const project = getCurrentProject();
+      if (!confirm(`Delete project "${project.name}"?`)) return;
+      state.projects = state.projects.filter(p => p.id !== project.id);
+      state.activeProjectId = state.projects[0].id;
+      renderAll();
+    }
+
+    function addFileToProject() {
+      const project = getCurrentProject();
+      const fileName = prompt("Enter file name (e.g., app.js, style.css, main.py, Main.java, main.c, main.cpp, index.php):", "app.js");
+      if (!fileName || !fileName.trim()) return;
+      const cleanName = fileName.trim();
+      const id = "f_" + Date.now();
+      project.files.push({
+        id,
+        name: cleanName,
+        lang: detectLangFromFilename(cleanName),
+        content: ""
+      });
+      project.activeFileId = id;
+      renderAll();
+    }
+
+    function deleteActiveFile() {
+      const project = getCurrentProject();
+      if (project.files.length <= 1) return;
+      const activeFile = getActiveFile(project);
+      if (!confirm(`Delete file "${activeFile.name}"?`)) return;
+      project.files = project.files.filter(f => f.id !== activeFile.id);
+      project.activeFileId = project.files[0].id;
+      renderAll();
+    }
+
+    function selectFile(fileId) {
+      const project = getCurrentProject();
+      project.activeFileId = fileId;
+      renderAll();
+    }
+
+    function changeActiveFileLanguage() {
+      const project = getCurrentProject();
+      const activeFile = getActiveFile(project);
+      activeFile.lang = document.getElementById("langSelect").value;
+      updateOutputMode(activeFile.lang);
+      document.getElementById("activeFileLang").innerText = activeFile.lang.toUpperCase();
+      saveState();
+    }
+
+    function buildCombinedWebDoc(project, activeFile) {
+      const cssText = project.files
+        .filter(f => f.lang === "css")
+        .map(f => f.content)
+        .join("\n");
+      const jsText = project.files
+        .filter(f => f.lang === "javascript")
+        .map(f => f.content)
+        .join("\n");
+
+      if (activeFile.lang === "html") {
+        let html = activeFile.content;
+        if (cssText) {
+          html = html.includes("</head>")
+            ? html.replace("</head>", `<style>\n${cssText}\n</style>\n</head>`)
+            : `<style>\n${cssText}\n</style>\n` + html;
+        }
+        if (jsText) {
+          html = html.includes("</body>")
+            ? html.replace("</body>", `<script>\n${jsText}\n<\/script>\n</body>`)
+            : html + `\n<script>\n${jsText}\n<\/script>`;
+        }
+        return html;
+      }
+
+      if (activeFile.lang === "css") {
+        const htmlBase = project.files.find(f => f.lang === "html")?.content || "<div>Styled with CSS</div>";
+        return `${htmlBase}\n<style>\n${activeFile.content}\n</style>`;
+      }
+
+      const htmlBase = project.files.find(f => f.lang === "html")?.content || `<div id="app"></div>`;
+      return `${htmlBase}\n<style>\n${cssText}\n</style>\n<script>\n${activeFile.content}\n<\/script>`;
+    }
+
+    async function runPython(code, stdin) {
+      const outEl = document.getElementById("consoleOutput");
+      const statusEl = document.getElementById("statusText");
+      if (!pyodideInstance) {
+        statusEl.innerText = "Loading Python engine...";
+        pyodideInstance = await loadPyodide();
+      }
+      statusEl.innerText = "Running Python...";
+      let logs = [];
+      pyodideInstance.setStdout({ batched: (msg) => logs.push(msg) });
+      pyodideInstance.setStderr({ batched: (msg) => logs.push(msg) });
+      const lines = stdin.split("\n");
+      let idx = 0;
+      pyodideInstance.setStdin({ stdin: () => (idx < lines.length ? lines[idx++] : "") });
+
+      try {
+        await pyodideInstance.runPythonAsync(code);
+        outEl.style.color = "#a7f3d0";
+        outEl.innerText = logs.join("\n") || "(Finished with no output)";
+        statusEl.innerText = "Done";
+      } catch (err) {
+        outEl.style.color = "#fca5a5";
+        outEl.innerText = err.toString();
+        statusEl.innerText = "Error";
+      }
+    }
+
+    async function runCompiledLanguage(lang, fileName, code, stdin) {
+      const outEl = document.getElementById("consoleOutput");
+      const statusEl = document.getElementById("statusText");
+      const apiKey = document.getElementById("apiKeyInput").value.trim();
+      statusEl.innerText = `Running ${lang.toUpperCase()}...`;
+
+      try {
+        if (apiKey) {
+          const res = await fetch("https://api.onlinecompiler.io/api/v2/piston/execute", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": apiKey },
+            body: JSON.stringify({
+              language: lang,
+              version: "*",
+              files: [{ name: fileName, content: code }],
+              stdin
+            })
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`);
+          outEl.style.color = data.run?.code === 0 ? "#a7f3d0" : "#fca5a5";
+          outEl.innerText = data.run?.output || data.compile?.output || "(No output)";
+          statusEl.innerText = "Done";
+          return;
+        }
+
+        const wbRes = await fetch("https://wandbox.org/api/compile.json", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ compiler: WANDBOX_COMPILERS[lang], code, stdin, save: false })
+        });
+        const wbData = await wbRes.json();
+        const text = [wbData.compiler_error, wbData.program_message, wbData.program_error].filter(Boolean).join("\n");
+        outEl.style.color = wbData.status === "0" ? "#a7f3d0" : "#fca5a5";
+        outEl.innerText = text || "(Finished with no output)";
+        statusEl.innerText = "Done";
+      } catch (err) {
+        outEl.style.color = "#fca5a5";
+        outEl.innerText = "Execution Error: " + err.message;
+        statusEl.innerText = "Failed";
+      }
+    }
+
+    async function runCode() {
+      const project = getCurrentProject();
+      const activeFile = getActiveFile(project);
+      activeFile.content = document.getElementById("codeEditor").value;
+      saveState();
+
+      const stdin = document.getElementById("stdinInput").value;
+      const lang = activeFile.lang;
+
+      if (lang === "html" || lang === "css" || lang === "javascript") {
+        document.getElementById("webPreview").srcdoc = buildCombinedWebDoc(project, activeFile);
+        document.getElementById("statusText").innerText = "Live Preview";
+        return;
+      }
+
+      if (lang === "python") {
+        await runPython(activeFile.content, stdin);
+        return;
+      }
+
+      await runCompiledLanguage(lang, activeFile.name, activeFile.content, stdin);
+    }
+
+    function exportProjects() {
+      const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "codelab-projects-backup.json";
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    document.getElementById("codeEditor").addEventListener("keydown", function (e) {
+      if (e.key === "Tab") {
+        e.preventDefault();
+        const start = this.selectionStart;
+        const end = this.selectionEnd;
+        this.value = this.value.substring(0, start) + "    " + this.value.substring(end);
+        this.selectionStart = this.selectionEnd = start + 4;
+        onEditorInput();
+      }
+    });
+
+    renderAll();
+  </script>
+</body>
+</html>
